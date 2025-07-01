@@ -5,7 +5,7 @@ import ArticleDetailPage from "../../components/ArticleDetail";
 
 async function getArticle(slug) {
     try {
-        const res = await fetch(`http://localhost:5000/api/articles/${slug}`, { cache: 'no-store' });
+        const res = await fetch(`https://trendwise-backend-si53.onrender.com/api/articles/${slug}`, { cache: 'no-store' });
         if (!res.ok) return null;
         return res.json();
     } catch (error) {

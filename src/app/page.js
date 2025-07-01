@@ -3,7 +3,7 @@ import Header from "./components/Header";
 import Index from "./components/Index";
 import Article from "./components/ArticleCard";
 export default async function Home() {
-  const res = await fetch('http://localhost:5000/api/articles', { cache: "no-store" });
+  const res = await fetch('https://trendwise-backend-si53.onrender.com/api/articles', { cache: "no-store" });
   const articles = await res.json();
 
   return (
