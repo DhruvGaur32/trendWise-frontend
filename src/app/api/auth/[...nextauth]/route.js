@@ -3,18 +3,23 @@ import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
-import User from "../../../models/User"; // Your user model
-import connectDB from "../../../lib/db"; // Your DB connection
+import User from "@/models/User";
+import connectDB from "@/lib/db";
 
 export const authOptions = {
     providers: [
-        // Google OAuth
         GoogleProvider({
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            // Add authorization parameters for better compatibility
+            authorization: {
+                params: {
+                    prompt: "consent",
+                    access_type: "offline",
+                    response_type: "code"
+                }
+            }
         }),
-
-        // Email/Password Credentials
         CredentialsProvider({
             name: "Credentials",
             credentials: {
@@ -25,9 +30,9 @@ export const authOptions = {
             async authorize(credentials) {
                 await connectDB();
 
-                // Sign-up logic
-                if (credentials.action === "signup") {
-                    try {
+                try {
+                    // Sign-up logic
+                    if (credentials.action === "signup") {
                         const existingUser = await User.findOne({ email: credentials.email });
                         if (existingUser) throw new Error("User already exists");
 
@@ -43,82 +48,89 @@ export const authOptions = {
                             email: newUser.email,
                             name: newUser.name
                         };
-                    } catch (error) {
-                        throw new Error(error.message);
                     }
-                }
 
-                // Sign-in logic
-                if (credentials.action === "signin") {
-                    const user = await User.findOne({ email: credentials.email });
-                    if (!user) throw new Error("User not found");
+                    // Sign-in logic
+                    if (credentials.action === "signin") {
+                        const user = await User.findOne({ email: credentials.email });
+                        if (!user) throw new Error("User not found");
 
-                    const isValid = await bcrypt.compare(credentials.password, user.password);
-                    if (!isValid) throw new Error("Invalid password");
+                        const isValid = await bcrypt.compare(credentials.password, user.password);
+                        if (!isValid) throw new Error("Invalid password");
 
-                    return {
-                        id: user._id.toString(),
-                        email: user.email,
-                        name: user.name
-                    };
+                        return {
+                            id: user._id.toString(),
+                            email: user.email,
+                            name: user.name
+                        };
+                    }
+                } catch (error) {
+                    // Throw specific error messages for client handling
+                    throw new Error(error.message);
                 }
 
                 return null;
             }
         })
-          
     ],
     pages: {
         signIn: "/auth/signin",
-        newUser: "/" // Redirect after first signup
+        error: "/auth/error"
     },
     callbacks: {
         async signIn({ user, account, profile }) {
+            // Only handle Google provider
             if (account.provider === "google") {
-                try {
-                    await connectDB();
+                await connectDB();
 
-                    // Check if user exists
+                try {
                     const existingUser = await User.findOne({ email: profile.email });
 
                     if (!existingUser) {
-                        // Create new user
+                        // Create new user with Google profile data
                         await User.create({
                             name: profile.name,
                             email: profile.email,
                             image: profile.picture,
-                            // Add other fields as needed
+                            // Add provider flag
+                            authProvider: "google"
                         });
                     }
-                    return true; // Allow sign-in
+                    return true;
                 } catch (error) {
-                    console.error("Error saving Google user:", error);
-                    return false; // Block sign-in on error
+                    console.error("Google signIn error:", error);
+                    return false;
                 }
             }
-            return true; // Allow other providers
+            return true;
         },
-        async session({ session, token }) {
-            // Fetch user from DB and add to session
-            if (session.user?.email) {
-                const dbUser = await User.findOne({ email: session.user.email });
-                if (dbUser) {
-                    session.user.id = dbUser._id.toString();
-                    session.user.role = dbUser.role; // Add custom fields
-                }
-            }
-            return session;
-          },
         async jwt({ token, user }) {
-            if (user) token.id = user._id;
+            // Pass user ID to token
+            if (user) {
+                token.id = user.id;
+            }
             return token;
         },
         async session({ session, token }) {
-            session.user.id = token.id;
+            // Enhance session with user ID
+            if (session.user) {
+                session.user.id = token.id;
+
+                // Add additional user data from database
+                await connectDB();
+                const dbUser = await User.findOne({ email: session.user.email });
+                if (dbUser) {
+                    session.user.role = dbUser.role || "user";
+                    session.user.image = dbUser.image;
+                }
+            }
             return session;
         }
     },
+    // Required for production
     secret: process.env.NEXTAUTH_SECRET,
+    // Enable debug logs in development
+    debug: process.env.NODE_ENV === "development"
 };
 
 const handler = NextAuth(authOptions);
